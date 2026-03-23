@@ -1,0 +1,5 @@
+# Optional accelerator dependencies.
+# Install these only when you need native METIS partitioning and have a
+# compatible compiler toolchain available.
+
+pymetis>=2023.1

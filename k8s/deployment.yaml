@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-api
+  labels:
+    app: sentinel-api
+spec:
+  selector:
+    app: sentinel-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-api
+  labels:
+    app: sentinel-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sentinel-api
+  template:
+    metadata:
+      labels:
+        app: sentinel-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      nodeSelector:
+        accelerator: nvidia
+      containers:
+        - name: sentinel-api
+          image: sentinel-upi:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: SENTINEL_ENVIRONMENT
+              value: production
+            - name: REDIS_URL
+              value: redis://redis-graph:6379/0
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3

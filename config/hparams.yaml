@@ -1,0 +1,199 @@
+project:
+  name: sentinel-upi
+  version: 0.1.0
+
+data:
+  raw_paysim_path: data/raw/paysim.csv
+  processed_dir: data/processed
+  timezone: Asia/Kolkata
+  start_timestamp: "2024-01-01T00:00:00"
+  simulation_window_days: 30
+  random_seed: 17
+  fraud_rate:
+    min: 0.001
+    max: 0.002
+    target: 0.0013
+  npci:
+    p2p_cap_inr: 100000.0
+  merchant_risk_weights:
+    peer_to_peer: 1.0
+    utility_government: 0.5
+    standard_retail: 1.0
+    gaming_wallet: 1.5
+    crypto_offshore: 2.0
+  merchant_category_mix:
+    payment_legit:
+      utility_government: 0.20
+      standard_retail: 0.70
+      gaming_wallet: 0.08
+      crypto_offshore: 0.02
+    payment_fraud:
+      utility_government: 0.05
+      standard_retail: 0.25
+      gaming_wallet: 0.40
+      crypto_offshore: 0.30
+    debit_legit:
+      utility_government: 0.35
+      standard_retail: 0.60
+      gaming_wallet: 0.04
+      crypto_offshore: 0.01
+    debit_fraud:
+      utility_government: 0.05
+      standard_retail: 0.20
+      gaming_wallet: 0.40
+      crypto_offshore: 0.35
+    cash_out_legit:
+      utility_government: 0.05
+      standard_retail: 0.35
+      gaming_wallet: 0.45
+      crypto_offshore: 0.15
+    cash_out_fraud:
+      utility_government: 0.01
+      standard_retail: 0.14
+      gaming_wallet: 0.45
+      crypto_offshore: 0.40
+    cash_in_legit:
+      utility_government: 0.15
+      standard_retail: 0.70
+      gaming_wallet: 0.10
+      crypto_offshore: 0.05
+    cash_in_fraud:
+      utility_government: 0.05
+      standard_retail: 0.25
+      gaming_wallet: 0.45
+      crypto_offshore: 0.25
+  velocity_profile:
+    legit:
+      baseline: 0.20
+      peaks:
+        - center_hour: 13.5
+          width_hours: 1.0
+          amplitude: 1.30
+        - center_hour: 19.0
+          width_hours: 2.0
+          amplitude: 1.00
+    fraud:
+      baseline: 0.12
+      peaks:
+        - center_hour: 2.5
+          width_hours: 1.5
+          amplitude: 2.20
+        - center_hour: 13.5
+          width_hours: 1.0
+          amplitude: 0.30
+        - center_hour: 19.0
+          width_hours: 2.0
+          amplitude: 0.20
+
+graph:
+  split_ratios:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  processed_files:
+    train: graph_train.pt
+    val: graph_val.pt
+    test: graph_test.pt
+  relations:
+    p2p: transfers_to
+    merchant: pays
+  pagerank_alpha: 0.85
+  pagerank_max_iter: 100
+  pagerank_tol: 1.0e-6
+  betweenness_sample_size: 128
+
+features:
+  node:
+    account_age_days:
+      min: 7
+      max: 720
+    kyc_distribution:
+      user:
+        tier_0: 0.12
+        tier_1: 0.48
+        tier_2: 0.40
+      utility_government:
+        tier_0: 0.00
+        tier_1: 0.10
+        tier_2: 0.90
+      standard_retail:
+        tier_0: 0.05
+        tier_1: 0.25
+        tier_2: 0.70
+      gaming_wallet:
+        tier_0: 0.35
+        tier_1: 0.50
+        tier_2: 0.15
+      crypto_offshore:
+        tier_0: 0.75
+        tier_1: 0.20
+        tier_2: 0.05
+  edge:
+    temporal_decay_rate: 0.01
+
+smote:
+  k_neighbors: 5
+  min_fraud_rate: 0.01
+  target_fraud_rate: 0.02
+  max_fraud_rate: 0.05
+  max_synthetic_nodes: 256
+  min_edges_per_synthetic: 1
+  max_edges_per_synthetic: 4
+  edge_generator:
+    hidden_channels: 64
+    epochs: 40
+    learning_rate: 0.01
+    threshold: 0.5
+
+partitioner:
+  num_clusters: 50
+  assignment_file: cluster_assignments.pkl
+
+model:
+  hidden_channels: 64
+  heads: 4
+  dropout: 0.3
+  attention_negative_slope: 0.2
+  classifier_hidden_dims:
+    - 128
+    - 64
+  focal_loss:
+    alpha: 0.25
+    gamma: 2.0
+
+training:
+  learning_rate: 0.005
+  weight_decay: 0.0005
+  max_epochs: 100
+  early_stopping_patience: 10
+  decision_threshold: 0.5
+  checkpoint_name: sentinel_gat_best.pt
+
+benchmark:
+  threshold_min: 0.10
+  threshold_max: 0.90
+  threshold_steps: 17
+  latency_trials: 5
+  logistic_regression:
+    max_iter: 400
+    random_state: 17
+  random_forest:
+    n_estimators: 160
+    max_depth: 12
+    min_samples_leaf: 2
+    random_state: 17
+  xgboost:
+    n_estimators: 160
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.90
+    colsample_bytree: 0.90
+    random_state: 17
+  graphsage:
+    hidden_channels: 64
+    num_layers: 2
+    dropout: 0.20
+    learning_rate: 0.003
+    weight_decay: 0.0005
+    max_epochs: 25
+    early_stopping_patience: 5
