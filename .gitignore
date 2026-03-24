@@ -1,1 +1,10 @@
-.venv
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+docker-build.log
+src/dashboard/frontend/node_modules/
+src/dashboard/frontend/dist/
+data/raw/
+data/processed/
+results/benchmark_fix*

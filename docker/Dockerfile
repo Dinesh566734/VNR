@@ -12,11 +12,12 @@ RUN apt-get update \
 
 COPY requirements.txt /app/requirements.txt
 
+# PyG 2.7 can run without the optional compiled extension packages for the
+# operations used in this project. Keeping the default image on the minimal
+# install path avoids wheel-matrix mismatches between the latest PyTorch release
+# and `data.pyg.org` extension indexes during Docker builds.
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install --extra-index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio \
-    && python -m pip install -r /app/requirements.txt \
-    && python -m pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv \
-        -f https://data.pyg.org/whl/torch-2.7.0+cu121.html
+    && python -m pip install -r /app/requirements.txt
 
 COPY config /app/config
 COPY src /app/src

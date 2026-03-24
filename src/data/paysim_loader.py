@@ -186,34 +186,24 @@ def _expand_rows(raw_frame: pd.DataFrame, config: dict[str, Any]) -> pd.DataFram
 
 def _calibrate_fraud_labels(frame: pd.DataFrame, config: dict[str, Any]) -> pd.Series:
     fraud_config = config["data"]["fraud_rate"]
-    min_rate = fraud_config["min"]
-    max_rate = fraud_config["max"]
     target_rate = fraud_config["target"]
-    labels = frame["base_is_fraud"].astype(int).copy()
-    current_rate = labels.mean()
-
-    if min_rate <= current_rate <= max_rate:
-        return labels
-
     target_count = max(1, int(round(target_rate * len(frame))))
     scores = _fraud_risk_scores(frame, config=config)
     tie_breaker = frame["txn_id"].map(lambda value: _stable_fraction(value, "fraud"))
+    bucket_ids = _temporal_fraud_buckets(frame, config=config)
+    bucket_targets = _allocate_bucket_targets(bucket_ids=bucket_ids, target_count=target_count)
+    labels = pd.Series(0, index=frame.index, dtype=int)
 
-    if labels.sum() < target_count:
-        candidates = frame.index[labels.eq(0)]
+    for bucket_id, bucket_target in enumerate(bucket_targets):
+        if bucket_target <= 0:
+            continue
+        candidates = frame.index[bucket_ids == bucket_id]
         ordered = sorted(
             candidates,
             key=lambda idx: (scores.loc[idx], tie_breaker.loc[idx]),
             reverse=True,
         )
-        labels.loc[ordered[: target_count - int(labels.sum())]] = 1
-    elif labels.sum() > target_count:
-        candidates = frame.index[labels.eq(1)]
-        ordered = sorted(
-            candidates,
-            key=lambda idx: (scores.loc[idx], tie_breaker.loc[idx]),
-        )
-        labels.loc[ordered[: int(labels.sum()) - target_count]] = 0
+        labels.loc[ordered[:bucket_target]] = 1
 
     return labels.astype(int)
 
@@ -231,6 +221,58 @@ def _fraud_risk_scores(frame: pd.DataFrame, config: dict[str, Any]) -> pd.Series
         + 0.10 * split_component
         + 0.08 * amount_component
     )
+
+
+def _temporal_fraud_buckets(frame: pd.DataFrame, config: dict[str, Any]) -> np.ndarray:
+    total_buckets = max(1, int(config["data"]["simulation_window_days"]))
+    relative_steps = _relative_steps(frame)
+    return np.minimum(
+        np.floor(relative_steps * total_buckets).astype(int),
+        total_buckets - 1,
+    )
+
+
+def _allocate_bucket_targets(
+    *,
+    bucket_ids: np.ndarray,
+    target_count: int,
+) -> np.ndarray:
+    if target_count <= 0 or bucket_ids.size == 0:
+        return np.zeros(0 if bucket_ids.size == 0 else int(bucket_ids.max()) + 1, dtype=int)
+
+    bucket_count = int(bucket_ids.max()) + 1
+    bucket_sizes = np.bincount(bucket_ids, minlength=bucket_count)
+    expected = bucket_sizes.astype(float) * float(target_count) / float(bucket_sizes.sum())
+    bucket_targets = np.floor(expected).astype(int)
+    remainder = int(target_count - bucket_targets.sum())
+
+    if remainder > 0:
+        fractional = expected - bucket_targets
+        ordering = sorted(
+            range(bucket_count),
+            key=lambda bucket_id: (fractional[bucket_id], bucket_sizes[bucket_id], -bucket_id),
+            reverse=True,
+        )
+        for bucket_id in ordering:
+            if remainder == 0:
+                break
+            if bucket_targets[bucket_id] >= bucket_sizes[bucket_id]:
+                continue
+            bucket_targets[bucket_id] += 1
+            remainder -= 1
+
+    if remainder > 0:
+        for bucket_id in range(bucket_count):
+            if remainder == 0:
+                break
+            available = int(bucket_sizes[bucket_id] - bucket_targets[bucket_id])
+            if available <= 0:
+                continue
+            increment = min(available, remainder)
+            bucket_targets[bucket_id] += increment
+            remainder -= increment
+
+    return bucket_targets.astype(int)
 
 
 def _assign_merchant_types(frame: pd.DataFrame, config: dict[str, Any]) -> pd.Series:

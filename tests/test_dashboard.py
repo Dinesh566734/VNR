@@ -54,7 +54,54 @@ def _sample_snapshot() -> dict:
             "confusion_matrix": [{"label": "TP", "value": 41}],
             "rule_weights": [{"rule": "Velocity Burst", "weight": 0.4}],
             "pnl": {"saved_inr": 10000.0, "lost_inr": 1200.0, "net_inr": 8800.0},
-            "training_summary": {"best_epoch": 12, "best_val_f1": 0.81, "adapted_rows": 265}
+            "training_summary": {"best_epoch": 12, "best_val_f1": 0.81, "adapted_rows": 265},
+            "benchmark_models": [
+                {
+                    "name": "Logistic Reg.",
+                    "type": "Statistical",
+                    "precision": 0.0007,
+                    "recall": 1.0,
+                    "f1_score": 0.0014,
+                    "auc_roc": 0.7380,
+                    "latency_ms": 0.0002,
+                },
+                {
+                    "name": "Random Forest",
+                    "type": "Ensemble",
+                    "precision": 0.0020,
+                    "recall": 0.1111,
+                    "f1_score": 0.0039,
+                    "auc_roc": 0.7642,
+                    "latency_ms": 0.0024,
+                },
+                {
+                    "name": "XGBoost",
+                    "type": "Boosting",
+                    "precision": 0.0006,
+                    "recall": 0.6296,
+                    "f1_score": 0.0012,
+                    "auc_roc": 0.3459,
+                    "latency_ms": 0.0004,
+                },
+                {
+                    "name": "GraphSAGE",
+                    "type": "Graph (GNN)",
+                    "precision": 0.0022,
+                    "recall": 0.1111,
+                    "f1_score": 0.0043,
+                    "auc_roc": 0.4138,
+                    "latency_ms": 0.0008,
+                },
+                {
+                    "name": "Sentinel-UPI",
+                    "type": "Graph (GAT)",
+                    "precision": 0.0016,
+                    "recall": 0.8148,
+                    "f1_score": 0.0032,
+                    "auc_roc": 0.7777,
+                    "latency_ms": 0.0064,
+                },
+            ],
         }
     }
 
@@ -82,6 +129,8 @@ def test_dashboard_backend_tab_endpoints_return_expected_shapes() -> None:
     assert live["transactions"][0]["decision"] == "BLOCK"
     assert analytics["network"]["nodes"][0]["id"] == "userA@okaxis"
     assert performance["cards"][0]["label"] == "F1 Score"
+    assert len(performance["benchmark_models"]) == 5
+    assert performance["benchmark_models"][-1]["name"] == "Sentinel-UPI"
     assert health["status"] == "ok"
 
 

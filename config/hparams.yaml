@@ -158,7 +158,7 @@ model:
     - 128
     - 64
   focal_loss:
-    alpha: 0.25
+    alpha: 0.75
     gamma: 2.0
 
 training:

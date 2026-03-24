@@ -2,56 +2,56 @@
   {
     "model_name": "Logistic Reg.",
     "model_type": "Statistical",
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "auc_roc": 0.6392052173614502,
-    "latency_ms": 0.0003191318488155687,
-    "threshold": 0.8999999761581421,
-    "monthly_loss_inr": 220600.0
+    "precision": 0.0007081967213114754,
+    "recall": 1.0,
+    "f1_score": 0.0014153910673097086,
+    "auc_roc": 0.7384940385818481,
+    "latency_ms": 0.00021429140983601712,
+    "threshold": 0.009999999776482582,
+    "monthly_loss_inr": 7619600.0
   },
   {
     "model_name": "Random Forest",
     "model_type": "Ensemble",
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "auc_roc": 0.5517544746398926,
-    "latency_ms": 0.00228030634459322,
-    "threshold": 0.3499999940395355,
-    "monthly_loss_inr": 142000.0
+    "precision": 0.0019815059445178335,
+    "recall": 0.1111111111111111,
+    "f1_score": 0.0038935756002595715,
+    "auc_roc": 0.7641938924789429,
+    "latency_ms": 0.0024008550819655554,
+    "threshold": 0.39142856001853943,
+    "monthly_loss_inr": 662200.0
   },
   {
     "model_name": "XGBoost",
     "model_type": "Boosting",
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "auc_roc": 0.47824594378471375,
-    "latency_ms": 0.0006910163401310699,
-    "threshold": 0.6499999761581421,
-    "monthly_loss_inr": 177800.0
+    "precision": 0.0005964912280701755,
+    "recall": 0.6296296296296297,
+    "f1_score": 0.001191853331931153,
+    "auc_roc": 0.345866322517395,
+    "latency_ms": 0.00035675121311453306,
+    "threshold": 0.8999999761581421,
+    "monthly_loss_inr": 5846600.0
   },
   {
     "model_name": "GraphSAGE",
     "model_type": "Graph (GNN)",
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "auc_roc": 0.3702771067619324,
-    "latency_ms": 0.0008853405722883661,
-    "threshold": 0.4000000059604645,
-    "monthly_loss_inr": 432200.0
+    "precision": 0.002170767004341534,
+    "recall": 0.1111111111111111,
+    "f1_score": 0.0042583392476934,
+    "auc_roc": 0.41383427381515503,
+    "latency_ms": 0.0008054672786870544,
+    "threshold": 0.5094897747039795,
+    "monthly_loss_inr": 635800.0
   },
   {
     "model_name": "Sentinel-UPI",
     "model_type": "Graph (GAT)",
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "auc_roc": 0.439777672290802,
-    "latency_ms": 0.007867360138489292,
-    "threshold": 0.5,
-    "monthly_loss_inr": 135000.0
+    "precision": 0.0015878744135691086,
+    "recall": 0.8148148148148148,
+    "f1_score": 0.0031695721077654514,
+    "auc_roc": 0.7777280807495117,
+    "latency_ms": 0.006444530885246273,
+    "threshold": 0.44591838121414185,
+    "monthly_loss_inr": 2841600.0
   }
 ]

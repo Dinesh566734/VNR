@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -263,7 +264,7 @@ def create_app(
     inference_service: InferenceService | None = None,
     api_keys: set[str] | None = None,
     rate_limit_per_minute: int = 10_000,
-    environment: str = "development",
+    environment: str | None = None,
     model_version: str | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with dependency injection for tests."""
@@ -288,7 +289,7 @@ def create_app(
 
     app = FastAPI(title="Sentinel-UPI API", version=model_version or config["project"]["version"])
     app.state.started_at = time.time()
-    app.state.environment = environment
+    app.state.environment = environment or os.getenv("SENTINEL_ENVIRONMENT", "development")
     app.state.api_keys = api_keys or {"dev-secret-key"}
     app.state.rate_limiter = RateLimiter(rate_limit_per_minute)
     app.state.registry = registry
@@ -369,7 +370,9 @@ def build_default_inference_service() -> InferenceService | None:
     """Best-effort default service from locally available processed graphs."""
 
     candidate_paths = [
+        PROJECT_ROOT / "data" / "processed" / "real_run_150k" / "graph_train_smote.pt",
         PROJECT_ROOT / "data" / "processed" / "graph_train_smote.pt",
+        PROJECT_ROOT / "data" / "processed" / "real_run_150k" / "graph_train.pt",
         PROJECT_ROOT / "data" / "processed" / "graph_train.pt",
         PROJECT_ROOT / "data" / "processed" / "graph_val.pt",
         PROJECT_ROOT / "data" / "processed" / "graph_test.pt",
@@ -384,7 +387,23 @@ def build_default_inference_service() -> InferenceService | None:
         return None
 
     model = SentinelGAT.from_graph(graph)
-    graph_cache = GraphCache(graph=graph)
+    checkpoint_candidates = [
+        os.getenv("SENTINEL_MODEL_PATH"),
+        str(PROJECT_ROOT / "models" / "sentinel_gat_best.pt"),
+        str(PROJECT_ROOT / "data" / "processed" / "real_run_150k" / "sentinel_gat_best.pt"),
+        str(PROJECT_ROOT / "data" / "processed" / "sentinel_gat_best.pt"),
+    ]
+    for candidate in checkpoint_candidates:
+        if not candidate:
+            continue
+        checkpoint_path = Path(candidate)
+        if not checkpoint_path.is_file():
+            continue
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        break
+
+    graph_cache = GraphCache(graph=graph, redis_url=os.getenv("REDIS_URL"))
     explainer = SentinelExplainer(model)
     alerting = AlertingService(enabled=False)
     return InferenceService(

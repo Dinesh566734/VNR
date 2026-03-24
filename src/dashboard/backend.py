@@ -104,6 +104,7 @@ def _load_dashboard_snapshot_cached(processed_dir: str) -> dict[str, Any]:
     run_dir = Path(processed_dir)
     evaluation = _read_json_if_exists(run_dir / "test_evaluation.json")
     training_summary = _read_json_if_exists(run_dir / "training_summary.json")
+    benchmark_results = _read_benchmark_results(run_dir=run_dir)
     graph = _load_graph_for_dashboard(run_dir)
     records = _build_transaction_records(graph=graph, checkpoint_path=run_dir / "sentinel_gat_best.pt")
 
@@ -111,6 +112,7 @@ def _load_dashboard_snapshot_cached(processed_dir: str) -> dict[str, Any]:
         records=records,
         evaluation=evaluation,
         training_summary=training_summary,
+        benchmark_results=benchmark_results,
         metadata={
             "source": str(run_dir),
             "generated_at": datetime.now(UTC).isoformat(),
@@ -250,6 +252,7 @@ def _build_snapshot_from_records(
     records: list[dict[str, Any]],
     evaluation: dict[str, Any],
     training_summary: dict[str, Any],
+    benchmark_results: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     overview = _build_overview_section(records=records, evaluation=evaluation)
@@ -259,6 +262,7 @@ def _build_snapshot_from_records(
         records=records,
         evaluation=evaluation,
         training_summary=training_summary,
+        benchmark_results=benchmark_results,
     )
     return {
         "metadata": metadata,
@@ -366,6 +370,7 @@ def _build_performance_section(
     records: list[dict[str, Any]],
     evaluation: dict[str, Any],
     training_summary: dict[str, Any],
+    benchmark_results: list[dict[str, Any]],
 ) -> dict[str, Any]:
     confusion = evaluation.get(
         "confusion_matrix",
@@ -410,6 +415,18 @@ def _build_performance_section(
             "best_val_f1": training_summary.get("best_val_f1", 0.0),
             "adapted_rows": training_summary.get("adapted_rows", 0),
         },
+        "benchmark_models": [
+            {
+                "name": str(result.get("model_name", "Unknown")),
+                "type": str(result.get("model_type", "Unknown")),
+                "precision": round(float(result.get("precision", 0.0)), 4),
+                "recall": round(float(result.get("recall", 0.0)), 4),
+                "f1_score": round(float(result.get("f1_score", 0.0)), 4),
+                "auc_roc": round(float(result.get("auc_roc", 0.0)), 4),
+                "latency_ms": round(float(result.get("latency_ms", 0.0)), 4),
+            }
+            for result in benchmark_results
+        ],
     }
 
 
@@ -579,6 +596,21 @@ def _read_json_if_exists(path: Path) -> dict[str, Any]:
         return json.load(handle)
 
 
+def _read_benchmark_results(*, run_dir: Path) -> list[dict[str, Any]]:
+    candidate_paths = [
+        PROJECT_ROOT / "results" / "benchmark.json",
+        run_dir / "benchmark.json",
+    ]
+    for path in candidate_paths:
+        if not path.is_file():
+            continue
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, list):
+            return [result for result in payload if isinstance(result, dict)]
+    return _sample_benchmark_results()
+
+
 def _fallback_snapshot(reason: str) -> dict[str, Any]:
     sample_records = _sample_dashboard_records()
     snapshot = _build_snapshot_from_records(
@@ -601,6 +633,7 @@ def _fallback_snapshot(reason: str) -> dict[str, Any]:
             "best_val_f1": 0.81,
             "adapted_rows": 265,
         },
+        benchmark_results=_sample_benchmark_results(),
         metadata={
             "source": "fallback",
             "generated_at": datetime.now(UTC).isoformat(),
@@ -648,6 +681,56 @@ def _sample_dashboard_records() -> list[dict[str, Any]]:
             }
         )
     return records
+
+
+def _sample_benchmark_results() -> list[dict[str, Any]]:
+    return [
+        {
+            "model_name": "Logistic Reg.",
+            "model_type": "Statistical",
+            "precision": 0.0007,
+            "recall": 1.0,
+            "f1_score": 0.0014,
+            "auc_roc": 0.7380,
+            "latency_ms": 0.0002,
+        },
+        {
+            "model_name": "Random Forest",
+            "model_type": "Ensemble",
+            "precision": 0.0020,
+            "recall": 0.1111,
+            "f1_score": 0.0039,
+            "auc_roc": 0.7642,
+            "latency_ms": 0.0024,
+        },
+        {
+            "model_name": "XGBoost",
+            "model_type": "Boosting",
+            "precision": 0.0006,
+            "recall": 0.6296,
+            "f1_score": 0.0012,
+            "auc_roc": 0.3459,
+            "latency_ms": 0.0004,
+        },
+        {
+            "model_name": "GraphSAGE",
+            "model_type": "Graph (GNN)",
+            "precision": 0.0022,
+            "recall": 0.1111,
+            "f1_score": 0.0043,
+            "auc_roc": 0.4138,
+            "latency_ms": 0.0008,
+        },
+        {
+            "model_name": "Sentinel-UPI",
+            "model_type": "Graph (GAT)",
+            "precision": 0.0016,
+            "recall": 0.8148,
+            "f1_score": 0.0032,
+            "auc_roc": 0.7777,
+            "latency_ms": 0.0064,
+        },
+    ]
 
 
 app = create_dashboard_app()

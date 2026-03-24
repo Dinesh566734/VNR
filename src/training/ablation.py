@@ -27,7 +27,13 @@ from .eval import (
     precision_from_confusion,
     recall_from_confusion,
 )
-from .train import TrainingArtifacts, train_model
+from .train import (
+    TrainingArtifacts,
+    build_threshold_candidates,
+    flatten_edge_predictions,
+    optimize_binary_threshold,
+    train_model,
+)
 
 try:  # pragma: no cover - import availability depends on environment
     from sklearn.ensemble import RandomForestClassifier
@@ -310,13 +316,13 @@ def run_baseline_benchmarks(
             save_checkpoint=False,
             verbose=verbose,
         )
-        sentinel_evaluation = evaluate_test_graph(
+        sentinel_evaluation = _evaluate_sentinel_with_tuned_threshold(
             model=sentinel_artifacts.model,
+            val_graph=val_graph,
             graph=test_graph,
             config_path=config_path,
             device=device,
             latency_trials=int(benchmark_config.get("latency_trials", 5)),
-            warmup_trials=1,
         )
 
     results.append(
@@ -360,7 +366,10 @@ def run_benchmarks_from_processed_artifacts(
     """Load saved graph splits and checkpoint, then write the benchmark markdown report."""
 
     run_dir = _resolve_processed_dir(processed_dir)
-    train_graph = torch.load(run_dir / "graph_train.pt", weights_only=False)
+    train_graph_path = run_dir / "graph_train_smote.pt"
+    if not train_graph_path.is_file():
+        train_graph_path = run_dir / "graph_train.pt"
+    train_graph = torch.load(train_graph_path, weights_only=False)
     val_graph = torch.load(run_dir / "graph_val.pt", weights_only=False)
     test_graph = torch.load(run_dir / "graph_test.pt", weights_only=False)
 
@@ -370,13 +379,13 @@ def run_benchmarks_from_processed_artifacts(
         model = SentinelGAT.from_graph(train_graph, config_path=config_path)
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
-        sentinel_evaluation = evaluate_test_graph(
+        sentinel_evaluation = _evaluate_sentinel_with_tuned_threshold(
             model=model,
+            val_graph=val_graph,
             graph=test_graph,
             config_path=config_path,
             device=device,
             latency_trials=5,
-            warmup_trials=1,
         )
 
     resolved_output = (
@@ -427,8 +436,8 @@ def benchmark_results_to_markdown(results: list[BenchmarkResult]) -> str:
     rows = [
         (
             f"| {result.model_name} | {result.model_type} | "
-            f"{result.precision:.3f} | {result.recall:.3f} | {result.f1_score:.3f} | "
-            f"{result.auc_roc:.3f} | {result.latency_ms:.3f} |"
+            f"{_format_metric(result.precision)} | {_format_metric(result.recall)} | {_format_metric(result.f1_score)} | "
+            f"{_format_metric(result.auc_roc)} | {_format_metric(result.latency_ms)} |"
         )
         for result in results
     ]
@@ -797,9 +806,9 @@ def _measure_graph_model_latency_ms(
 
 
 def _threshold_candidates(*, config: dict[str, Any]) -> np.ndarray:
-    start = float(config.get("threshold_min", 0.10))
-    end = float(config.get("threshold_max", 0.90))
-    steps = int(config.get("threshold_steps", 17))
+    start = min(float(config.get("threshold_min", 0.10)), 0.01)
+    end = max(float(config.get("threshold_max", 0.90)), 0.90)
+    steps = max(int(config.get("threshold_steps", 17)), 99)
     return np.linspace(start, end, num=steps, dtype=np.float32)
 
 
@@ -888,3 +897,51 @@ def _result_from_evaluation(
         monthly_loss_inr=evaluation.monthly_loss_inr,
         latency_ms=evaluation.average_latency_ms,
     )
+
+
+def _evaluate_sentinel_with_tuned_threshold(
+    *,
+    model: SentinelGAT,
+    val_graph: HeteroData,
+    graph: HeteroData,
+    config_path: str | None,
+    device: str | torch.device | None,
+    latency_trials: int,
+) -> EvaluationReport:
+    config = load_config(config_path)
+    resolved_device = torch.device(
+        device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
+    threshold_candidates = build_threshold_candidates(config=config)
+    model = model.to(resolved_device).eval()
+
+    with torch.no_grad():
+        val_on_device = val_graph.to(resolved_device)
+        logits_by_edge = model(val_on_device, return_logits=True)
+        logits, labels = flatten_edge_predictions(logits_by_edge, val_on_device)
+        probabilities = torch.sigmoid(logits)
+        threshold = optimize_binary_threshold(
+            probabilities=probabilities,
+            labels=labels,
+            threshold=None,
+            threshold_candidates=threshold_candidates,
+        )
+
+    return evaluate_test_graph(
+        model=model,
+        graph=graph,
+        config_path=config_path,
+        device=resolved_device,
+        threshold=threshold,
+        latency_trials=latency_trials,
+        warmup_trials=1,
+    )
+
+
+def _format_metric(value: float) -> str:
+    absolute = abs(float(value))
+    if absolute == 0.0:
+        return "0.000"
+    if absolute < 0.01:
+        return f"{value:.4f}"
+    return f"{value:.3f}"

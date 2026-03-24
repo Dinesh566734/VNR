@@ -52,6 +52,7 @@ const EMPTY_DASHBOARD = {
     cards: [],
     confusion_matrix: [],
     rule_weights: [],
+    benchmark_models: [],
     pnl: { saved_inr: 0, lost_inr: 0, net_inr: 0, reported_monthly_loss_inr: 0 }
   }
 }
@@ -378,6 +379,8 @@ function AnalyticsTab({ data }) {
 }
 
 function PerformanceTab({ data }) {
+  const benchmarkModels = data.benchmark_models ?? []
+
   return (
     <section className="dashboard-grid">
       <div className="card span-12 kpi-grid">
@@ -435,6 +438,53 @@ function PerformanceTab({ data }) {
             <span>Reported Monthly Loss</span>
             <strong>{formatCurrency(data.pnl.reported_monthly_loss_inr)}</strong>
           </div>
+        </div>
+      </div>
+
+      <div className="card span-12">
+        <CardHeader title="Benchmark Comparison" subtitle="All five models on the same held-out split" />
+        <div className="table-wrap">
+          <table className="live-table benchmark-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Type</th>
+                <th>Precision</th>
+                <th>Recall</th>
+                <th>F1</th>
+                <th>AUC-ROC</th>
+                <th>Latency (ms)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {benchmarkModels.length ? (
+                benchmarkModels.map((model) => (
+                  <tr
+                    key={model.name}
+                    className={model.name === "Sentinel-UPI" ? "benchmark-row active" : "benchmark-row"}
+                  >
+                    <td className="benchmark-model">
+                      <strong>{model.name}</strong>
+                    </td>
+                    <td>
+                      <span className="benchmark-chip">{model.type}</span>
+                    </td>
+                    <td>{formatBenchmarkMetric(model.precision)}</td>
+                    <td>{formatBenchmarkMetric(model.recall)}</td>
+                    <td>{formatBenchmarkMetric(model.f1_score)}</td>
+                    <td>{formatBenchmarkMetric(model.auc_roc)}</td>
+                    <td>{formatBenchmarkMetric(model.latency_ms)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="7" className="benchmark-empty">
+                    Benchmark results are not available yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -528,6 +578,10 @@ function formatTimestamp(value) {
 
 function formatCurrency(value) {
   return `INR ${Number(value).toLocaleString()}`
+}
+
+function formatBenchmarkMetric(value) {
+  return Number(value ?? 0).toFixed(4)
 }
 
 function humanizeText(value) {

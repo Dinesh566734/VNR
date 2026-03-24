@@ -42,6 +42,7 @@ class TrainingArtifacts:
     history: list[EpochMetrics]
     best_epoch: int
     best_val_f1: float
+    best_threshold: float
     checkpoint_path: Path | None
     device: str
 
@@ -60,6 +61,7 @@ class RawPipelineArtifacts:
     training_summary_path: Path
     best_epoch: int
     best_val_f1: float
+    best_threshold: float
     test_report: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +73,7 @@ class RawPipelineArtifacts:
             "training_summary_path": str(self.training_summary_path),
             "best_epoch": self.best_epoch,
             "best_val_f1": self.best_val_f1,
+            "best_threshold": self.best_threshold,
             "test_report": self.test_report,
         }
 
@@ -128,12 +131,13 @@ def train_model(
     early_stopping_patience = int(
         patience if patience is not None else training_config["early_stopping_patience"]
     )
-    threshold = float(training_config["decision_threshold"])
+    threshold_candidates = build_threshold_candidates(config=config)
 
     history: list[EpochMetrics] = []
     best_state: dict[str, Tensor] | None = None
     best_epoch = 0
     best_val_f1 = float("-inf")
+    best_threshold = float(training_config["decision_threshold"])
     patience_counter = 0
 
     for epoch in range(1, total_epochs + 1):
@@ -162,7 +166,8 @@ def train_model(
             graph=val_graph,
             criterion=criterion,
             device=resolved_device,
-            threshold=threshold,
+            threshold=None,
+            threshold_candidates=threshold_candidates,
         )
         epoch_metrics = EpochMetrics(
             epoch=epoch,
@@ -180,6 +185,7 @@ def train_model(
         if epoch_metrics.val_f1 > best_val_f1:
             best_val_f1 = epoch_metrics.val_f1
             best_epoch = epoch
+            best_threshold = float(validation["threshold"])
             patience_counter = 0
             best_state = copy.deepcopy(model.state_dict())
             if resolved_checkpoint is not None:
@@ -203,6 +209,7 @@ def train_model(
         history=history,
         best_epoch=best_epoch,
         best_val_f1=float(best_val_f1 if best_val_f1 != float("-inf") else 0.0),
+        best_threshold=best_threshold,
         checkpoint_path=resolved_checkpoint,
         device=str(resolved_device),
     )
@@ -214,7 +221,8 @@ def evaluate_model(
     graph: HeteroData,
     criterion: FocalLoss,
     device: str | torch.device,
-    threshold: float = 0.5,
+    threshold: float | None = 0.5,
+    threshold_candidates: Tensor | None = None,
 ) -> dict[str, float]:
     """Evaluate loss and binary metrics on a full graph split."""
 
@@ -224,13 +232,27 @@ def evaluate_model(
         logits_by_edge = model(graph_on_device, return_logits=True)
         logits, labels = flatten_edge_predictions(logits_by_edge, graph_on_device)
         if labels.numel() == 0:
-            return {"loss": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+            resolved_threshold = float(threshold if threshold is not None else 0.5)
+            return {
+                "loss": 0.0,
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "threshold": resolved_threshold,
+            }
 
         loss = criterion(logits, labels)
         probabilities = torch.sigmoid(logits)
-        predictions = (probabilities >= threshold).float()
+        resolved_threshold = optimize_binary_threshold(
+            probabilities=probabilities,
+            labels=labels,
+            threshold=threshold,
+            threshold_candidates=threshold_candidates,
+        )
+        predictions = (probabilities >= resolved_threshold).float()
         metrics = binary_classification_metrics(predictions=predictions, labels=labels)
         metrics["loss"] = float(loss.item())
+        metrics["threshold"] = float(resolved_threshold)
         return metrics
 
 
@@ -379,6 +401,47 @@ def total_edge_count(graph: HeteroData) -> int:
     return int(sum(graph[edge_type].edge_index.shape[1] for edge_type in graph.edge_types))
 
 
+def build_threshold_candidates(
+    *,
+    config: dict[str, Any],
+) -> Tensor:
+    benchmark_config = config.get("benchmark", {})
+    start = min(float(benchmark_config.get("threshold_min", 0.10)), 0.01)
+    end = max(float(benchmark_config.get("threshold_max", 0.90)), 0.90)
+    steps = max(int(benchmark_config.get("threshold_steps", 17)), 99)
+    return torch.linspace(start, end, steps=steps, dtype=torch.float32)
+
+
+def optimize_binary_threshold(
+    *,
+    probabilities: Tensor,
+    labels: Tensor,
+    threshold: float | None,
+    threshold_candidates: Tensor | None = None,
+) -> float:
+    if threshold is not None:
+        return float(threshold)
+
+    candidates = (
+        threshold_candidates.detach().cpu().float()
+        if threshold_candidates is not None
+        else torch.linspace(0.01, 0.99, steps=99, dtype=torch.float32)
+    )
+    probability_tensor = probabilities.detach().cpu().reshape(-1).float()
+    label_tensor = labels.detach().cpu().reshape(-1).float()
+    best_threshold = 0.5
+    best_f1 = float("-inf")
+
+    for candidate in candidates.tolist():
+        predictions = (probability_tensor >= float(candidate)).float()
+        metrics = binary_classification_metrics(predictions=predictions, labels=label_tensor)
+        if metrics["f1"] > best_f1:
+            best_f1 = metrics["f1"]
+            best_threshold = float(candidate)
+
+    return float(best_threshold)
+
+
 def format_epoch_log(metrics: EpochMetrics) -> str:
     """Format per-epoch console logging to the requested shape."""
 
@@ -494,6 +557,7 @@ def train_from_raw_paysim(
         graph=graphs["test"],
         config_path=config_path,
         device=device,
+        threshold=training_artifacts.best_threshold,
     )
 
     evaluation_path = write_evaluation_report(
@@ -512,6 +576,7 @@ def train_from_raw_paysim(
         "split_edge_counts": split_edge_counts,
         "best_epoch": training_artifacts.best_epoch,
         "best_val_f1": training_artifacts.best_val_f1,
+        "best_threshold": training_artifacts.best_threshold,
         "checkpoint_path": str(training_artifacts.checkpoint_path) if training_artifacts.checkpoint_path else None,
         "evaluation_report": test_report.to_dict(),
     }
@@ -526,6 +591,7 @@ def train_from_raw_paysim(
         training_summary_path=training_summary_path,
         best_epoch=training_artifacts.best_epoch,
         best_val_f1=training_artifacts.best_val_f1,
+        best_threshold=training_artifacts.best_threshold,
         test_report=test_report.to_dict(),
     )
 
